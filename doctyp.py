@@ -11,7 +11,7 @@ Crea un archivo .typ con la nomenclatura oficial (AREA-TIPO-CAT_AAAA-NNNN) y la 
 canónica, asignando el correlativo de forma SECUENCIAL automática (global anual). La fuente de
 verdad del correlativo y de las versiones es `doctyp-registro.json`, junto al script.
 
-Subcomandos (con alias):  list/ls · new/n · save/s · add/a · compile/c
+Subcomandos (con alias):  list/ls · new/n · save/s · add/a · compile/c · edit/code/e
 
 Uso rápido:
     doctyp new "Auditoría de respaldos"                 # título posicional + defaults de autoría
@@ -19,13 +19,14 @@ Uso rápido:
     doctyp save 1 --m "Corrige sección de alcance"      # sube versión (1.0.0 -> 1.0.1) del doc 0001
     doctyp add                                          # importa un .typ del CWD al registro
     doctyp compile 1                                    # compila el doc 0001 a PDF (junto al .typ)
+    doctyp edit 1                                       # abre el doc 0001 en VS Code / editor favorito
     doctyp ls
 
 El título acepta posicional, --titulo o --t. Sin título, se pide de forma interactiva.
 No requiere paquetes externos (solo stdlib).
 """
 from __future__ import annotations
-import argparse, json, re, sys, subprocess, datetime
+import argparse, json, os, re, sys, subprocess, datetime
 from pathlib import Path
 
 # Ubicación real del script (resuelve el symlink). Aquí viven lib.typ, Images/ y el registro.
@@ -494,6 +495,65 @@ def cmd_compile(args):
         sys.exit(1)
 
 
+def _host_tiene(cmd: str) -> bool:
+    """True si `cmd` existe en el host (vía flatpak-spawn). flatpak-spawn no propaga el código
+    de error cuando el comando del host falta, así que se comprueba explícitamente."""
+    try:
+        r = subprocess.run(["flatpak-spawn", "--host", "sh", "-c", f"command -v {cmd}"],
+                           capture_output=True, text=True)
+        return r.returncode == 0 and bool(r.stdout.strip())
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def _abrir_en_editor(path: Path) -> bool:
+    """Abre `path` en VS Code si está disponible; si no, en el editor favorito
+    ($VISUAL/$EDITOR) o, como último recurso, con xdg-open. Devuelve True si lanzó algo."""
+    import shutil
+    en_flatpak = Path("/.flatpak-info").exists() and shutil.which("flatpak-spawn") is not None
+    candidatos: list[tuple[str, list[str]]] = []  # (nombre legible, comando)
+
+    # 1) VS Code: directo en el PATH, o el del host (Fedora/Flatpak) si existe allí.
+    if shutil.which("code"):
+        candidatos.append(("code", ["code"]))
+    elif en_flatpak and _host_tiene("code"):
+        candidatos.append(("code (host)", ["flatpak-spawn", "--host", "code"]))
+    # 2) Editor favorito del entorno.
+    for var in ("VISUAL", "EDITOR"):
+        val = os.environ.get(var)
+        if val:
+            candidatos.append((val.split()[0], val.split()))
+            break
+    # 3) Último recurso: la app predeterminada del sistema.
+    if shutil.which("xdg-open"):
+        candidatos.append(("xdg-open", ["xdg-open"]))
+    elif en_flatpak and _host_tiene("xdg-open"):
+        candidatos.append(("xdg-open (host)", ["flatpak-spawn", "--host", "xdg-open"]))
+
+    for nombre, base in candidatos:
+        try:
+            subprocess.Popen(base + [str(path)])
+            print(f"✔ Abriendo en: {nombre}")
+            return True
+        except (FileNotFoundError, OSError):
+            continue
+    return False
+
+
+def cmd_edit(args):
+    registro = cargar_registro(SCRIPT_DIR)
+    anio = args.anio or datetime.date.today().year
+    doc = buscar_doc(registro, args.correlativo, anio)
+
+    typ_path = Path(doc["ruta"])
+    if not typ_path.exists():
+        sys.exit(f"ERROR: el archivo registrado no existe: {typ_path}")
+
+    print(f"Documento {doc['codigo_base']}: {typ_path}")
+    if not _abrir_en_editor(typ_path):
+        sys.exit("ERROR: no se encontró VS Code ni un editor ($VISUAL/$EDITOR/xdg-open).")
+
+
 def _seleccionar(opciones: list[str], titulo: str) -> int | None:
     """Muestra un menú numerado y devuelve el índice elegido (o None si se cancela).
     El usuario teclea el número de la lista y Enter; 'q' o vacío cancela."""
@@ -633,6 +693,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Número correlativo del documento a compilar (p. ej. 1 o 0001).")
     pc.add_argument("--anio", type=int, help="Año del documento (por defecto, el actual).")
     pc.set_defaults(func=cmd_compile)
+
+    pe = sub.add_parser("edit", aliases=["code", "e"],
+                        help="Abre el documento en VS Code o en el editor favorito.")
+    pe.add_argument("correlativo", type=int, metavar="CORRELATIVO",
+                    help="Número correlativo del documento a abrir (p. ej. 1 o 0001).")
+    pe.add_argument("--anio", type=int, help="Año del documento (por defecto, el actual).")
+    pe.set_defaults(func=cmd_edit)
     return p
 
 

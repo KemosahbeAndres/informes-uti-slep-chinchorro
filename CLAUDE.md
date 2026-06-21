@@ -111,6 +111,7 @@ doctyp new   "Título" [opciones]             # (alias: n)  crea (tipo INF, cate
 doctyp save  <correlativo> --m "mensaje"     # (alias: s)  sube versión (patch) y registra el cambio
 doctyp add                                   # (alias: a)  importa al registro un .typ del CWD
 doctyp compile <correlativo>                 # (alias: c)  compila el documento a PDF (junto al .typ)
+doctyp edit <correlativo>                    # (alias: code, e) abre el .typ en VS Code / editor favorito
 ```
 El título de `new` admite tres formas: posicional (`doctyp new "Título"`), `--t "Título"`
 o `--titulo "Título"`.
@@ -175,6 +176,13 @@ queda **junto al `.typ`**. Detalles de la invocación (en `compilar_typ`):
   `flatpak-spawn --host typst`. Funciona con archivos bajo `$HOME` (compartido host↔sandbox);
   `/tmp` del sandbox **no** es visible para el host. En una terminal normal del host se usa
   `typst` directo.
+
+### Subcomando `edit`
+`doctyp edit <correlativo>` (alias `code`, `e`) abre el `.typ` del documento en un editor, en
+este orden de preferencia: **VS Code** (`code`, directo o el del host vía `flatpak-spawn`) →
+**editor favorito** (`$VISUAL`/`$EDITOR`) → **`xdg-open`** (app predeterminada del sistema).
+Como `flatpak-spawn` no propaga el código de error si el comando del host falta, antes de usar
+el host se comprueba su existencia con `command -v`.
 
 ### Cómo lo usa Claude Code
 1. Ejecuta `doctyp list` para conocer el próximo correlativo (informativo).
