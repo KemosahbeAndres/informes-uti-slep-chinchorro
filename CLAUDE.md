@@ -49,7 +49,8 @@ Cada informe se nombra con su **código base**: `TI-<TIPO>-<CAT>_<AAAA>-<NNNN>.t
 
 **Vía A (recomendada): generador `doctyp`** — asigna el correlativo y escribe la estructura.
 El documento se crea de forma centralizada en **`<Documentos>/doctyp/<año>/`**, no en el CWD.
-Con los defaults de autoría (Andrés Cubillos), tipo `INF` y categoría `SFW` basta con el título:
+Con los defaults de autoría (de `settings.json → local.author`; ver `config-author`), tipo `INF`
+y categoría `SFW` basta con el título:
 
 ```bash
 doctyp new "Auditoría de respaldos del Centro de Datos"   # título posicional (alias: doctyp n)
@@ -125,6 +126,7 @@ doctyp add                                   # (alias: a)  mueve un .typ del CWD
 doctyp compile <correlativo>                 # (alias: c)  compila a PDF (junto al .typ y copia al CWD)
 doctyp edit <correlativo>                    # (alias: code, e) abre el .typ en VS Code / editor favorito
 doctyp reset [<correlativo>]                 # fija dónde empieza el correlativo del año (def. 1)
+doctyp config-author                         # (alias: author) configura el autor global (settings.json → local.author)
 ```
 El título de `new` admite tres formas: posicional (`doctyp new "Título"`), `--t "Título"`
 o `--titulo "Título"`.
@@ -143,9 +145,9 @@ o `--titulo "Título"`.
 | `--anio` | el de `--fecha` | |
 | `--estado` | `BORRADOR` | BORRADOR \| EN REVISIÓN \| APROBADO |
 | `--clasificacion` | `INTERNO` | PÚBLICO \| INTERNO \| RESERVADO \| CONFIDENCIAL |
-| `--autor` | `Andres Cubillos Salazar` | autoría |
-| `--cargo` | `Tecnico de Soporte Informático` | autoría |
-| `--correo` | `andres.cubillos@epchinchorro.cl` | autoría |
+| `--autor` | `settings.json → local.author` (o `Andres Cubillos Salazar`) | autoría; el default global lo fija `config-author`/`init` |
+| `--cargo` | `settings.json → local.author` (o `Tecnico de Soporte Informático`) | autoría |
+| `--correo` | `settings.json → local.author` (o `andres.cubillos@epchinchorro.cl`) | autoría |
 | `--revisor` `--aprobador` | defaults de la plantilla | |
 | `--forzar` | — | sobrescribe si el archivo existe |
 
@@ -204,12 +206,20 @@ este orden de preferencia:
 2. **VS Code / VSCodium como Flatpak** (`com.visualstudio.code` / `com.vscodium.codium`): se lanza
    con `flatpak run <id>`. Es el caso típico en Fedora, donde **no** hay binario `code` en el PATH.
 3. **Editor favorito** `$VISUAL` / `$EDITOR`.
-4. **`xdg-open`** (app predeterminada del sistema).
+4. **App predeterminada del sistema**: `xdg-open` (Linux), `open` (macOS) u `os.startfile`
+   (Windows). En Windows también detecta `code.cmd`.
 
 Cada opción se sondea de forma fiable por **código de salida** (`flatpak info <id>`,
 `command -v <cmd>`), porque `flatpak-spawn` no propaga el error si el comando del host falta.
 Si estamos dentro de un sandbox Flatpak, los comandos del host se ejecutan con
 `flatpak-spawn --host`; en una terminal normal del host, directos.
+
+### Subcomando `config-author`
+`doctyp config-author` (alias `author`) configura **globalmente** los datos del autor (nombre,
+cargo, correo) y los guarda en `settings.json → local.author`. Es interactivo: cada dato muestra
+el valor actual entre paréntesis y, si lo dejas en blanco, se mantiene. Estos valores son el
+**default de autoría** de `doctyp new` (sobre ellos siempre ganan `--autor`/`--cargo`/`--correo`).
+Lo invocan `init` (Linux/macOS) e `init.ps1` (Windows); volver a ejecutarlos permite cambiarlos.
 
 ### Cómo lo usa Claude Code
 1. Ejecuta `doctyp list` para conocer el próximo correlativo (informativo).

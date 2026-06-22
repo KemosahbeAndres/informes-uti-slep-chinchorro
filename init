@@ -4,7 +4,8 @@
 #
 # Asegura las dependencias (Python 3, Typst), instala las fuentes oficiales y crea los symlinks
 # del comando (doctyp + alias ty/tp/dt) en ~/.local/bin. Pensado para ejecutarse una sola vez
-# tras clonar el repositorio. Soporta Ubuntu, Debian y Fedora.
+# tras clonar el repositorio. Soporta Ubuntu, Debian, Fedora/RHEL, Arch, openSUSE y macOS.
+# En Windows usa el instalador equivalente init.ps1 (PowerShell).
 #
 # Uso:
 #   ./init
@@ -30,11 +31,15 @@ detect_distro() {
     # shellcheck disable=SC1091
     . /etc/os-release
     case "${ID:-}${ID_LIKE:-}" in
-      *fedora*|*rhel*) echo "fedora" ;;
-      *ubuntu*)        echo "ubuntu" ;;
-      *debian*)        echo "debian" ;;
-      *)               echo "unknown" ;;
+      *fedora*|*rhel*|*centos*) echo "fedora" ;;
+      *ubuntu*)                 echo "ubuntu" ;;
+      *debian*)                 echo "debian" ;;
+      *arch*)                   echo "arch" ;;
+      *suse*)                   echo "suse" ;;
+      *)                        echo "unknown" ;;
     esac
+  elif [ "$(uname -s)" = "Darwin" ]; then
+    echo "macos"
   else
     echo "unknown"
   fi
@@ -47,8 +52,14 @@ info "Distribución detectada: ${DISTRO}"
 case "$DISTRO" in
   fedora)         PM_INSTALL="sudo dnf install -y" ;;
   ubuntu|debian)  PM_INSTALL="sudo apt-get install -y"; sudo apt-get update -qq || true ;;
+  arch)           PM_INSTALL="sudo pacman -S --noconfirm" ;;
+  suse)           PM_INSTALL="sudo zypper install -y" ;;
+  macos)          if command -v brew >/dev/null 2>&1; then PM_INSTALL="brew install"; else PM_INSTALL=""; fi ;;
   *)              PM_INSTALL="" ;;
 esac
+
+# En macOS las fuentes de usuario van a ~/Library/Fonts.
+[ "$DISTRO" = "macos" ] && FONT_DIR="$HOME/Library/Fonts"
 
 # Instala un paquete del sistema (o avisa si no hay gestor soportado).
 pkg_install() {
@@ -84,8 +95,16 @@ else
       pkg_install typst && ok "Typst instalado." || \
         warn "No se pudo instalar Typst con dnf. Alternativa: 'cargo install typst-cli'."
       ;;
-    ubuntu|debian)
-      # Typst no está en los repos estándar de Debian/Ubuntu; se intenta snap o cargo.
+    arch)
+      pkg_install typst && ok "Typst instalado." || \
+        warn "No se pudo instalar Typst con pacman. Alternativa: 'cargo install typst-cli'."
+      ;;
+    macos)
+      pkg_install typst && ok "Typst instalado." || \
+        warn "No se pudo instalar Typst con brew. Alternativa: 'cargo install typst-cli'."
+      ;;
+    ubuntu|debian|suse)
+      # Typst no está en los repos estándar de Debian/Ubuntu/SUSE; se intenta snap o cargo.
       if command -v snap >/dev/null 2>&1; then
         info "Instalando Typst vía snap..."
         sudo snap install typst --classic && ok "Typst instalado (snap)." || \
@@ -135,7 +154,22 @@ for n in "${ALIASES[@]}"; do
 done
 
 # --------------------------------------------------------------------------
-# 5) PATH
+# 5) Datos del autor (settings.json -> local.author)
+# --------------------------------------------------------------------------
+# Se piden interactivamente y se guardan globalmente; al crear documentos, doctyp los usa por
+# defecto. Se delega en el propio script (config-author) para tener una única fuente de la lógica.
+# Volver a ejecutar `init` permite cambiarlos (en blanco se mantiene el valor actual).
+PYTHON="$(command -v python3 || command -v python || true)"
+if [ -n "$PYTHON" ] && [ -t 0 ]; then
+  info "Configurando datos del autor (se guardan en settings.json)..."
+  "$PYTHON" "$REPO_DIR/doctyp.py" config-author || warn "No se pudo configurar el autor."
+else
+  warn "Omito la configuración del autor (sin Python o sin terminal interactiva)."
+  warn "Configúralo luego con:  doctyp config-author"
+fi
+
+# --------------------------------------------------------------------------
+# 6) PATH
 # --------------------------------------------------------------------------
 if printf '%s' ":$PATH:" | grep -q ":$BIN_DIR:"; then
   ok "${BIN_DIR} ya está en el PATH."

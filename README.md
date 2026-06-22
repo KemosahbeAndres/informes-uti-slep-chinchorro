@@ -45,6 +45,56 @@ Necesarias para funcionar:
    y gobCL) vienen en el repositorio; si faltan en el sistema, Typst cae a Liberation Sans sin
    romper el layout.
 
+### Instalación de dependencias por sistema
+
+Instala Python 3 y Typst con el gestor de tu sistema. (`init` / `init.ps1` también lo intentan
+por ti; estos comandos son por si prefieres hacerlo a mano o el automático no pudo.)
+
+**Windows** (PowerShell):
+
+```powershell
+winget install Python.Python.3.12
+winget install Typst.Typst
+# Alternativa con Scoop:
+#   scoop install python typst
+```
+
+**macOS** (Terminal, con [Homebrew](https://brew.sh)):
+
+```bash
+brew install python typst
+```
+
+**Linux — Fedora / RHEL** (bash):
+
+```bash
+sudo dnf install -y python3 typst
+```
+
+**Linux — Arch** (bash):
+
+```bash
+sudo pacman -S --noconfirm python typst
+```
+
+**Linux — Ubuntu / Debian** (bash) — Typst no está en los repos estándar:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3
+sudo snap install typst --classic        # o:  cargo install typst-cli
+```
+
+**Linux — openSUSE** (bash):
+
+```bash
+sudo zypper install -y python3
+sudo snap install typst --classic        # o:  cargo install typst-cli
+```
+
+> En cualquier sistema, como último recurso para Typst:  `cargo install typst-cli`
+> o el binario oficial desde <https://github.com/typst/typst/releases>.
+
 ---
 
 ## Inicio rápido con `init` (recomendado)
@@ -63,15 +113,21 @@ Si el archivo no tuviera permiso de ejecución, dáselo antes con `chmod +x init
 
 ### Qué hace `init`
 
-1. **Detecta tu distribución** (Ubuntu, Debian o Fedora) a partir de `/etc/os-release`.
+1. **Detecta tu sistema** (Ubuntu, Debian, Fedora/RHEL, Arch, openSUSE o macOS) a partir de
+   `/etc/os-release` o `uname`.
 2. **Comprueba e instala las dependencias** con el gestor de tu sistema:
-   - **Python 3** (`apt`/`dnf`).
-   - **Typst** (`dnf` en Fedora; `snap` o `cargo` en Ubuntu/Debian).
+   - **Python 3** (`apt`/`dnf`/`pacman`/`zypper`/`brew`).
+   - **Typst** (`dnf` en Fedora, `pacman` en Arch, `brew` en macOS; `snap` o `cargo` en
+     Debian/Ubuntu/SUSE).
    Te pedirá la contraseña de `sudo` solo si hay que instalar algo.
-3. **Instala las fuentes oficiales** (Museo Sans y gobCL) en `~/.local/share/fonts` y refresca la
-   caché de fuentes.
+3. **Instala las fuentes oficiales** (Museo Sans y gobCL) en `~/.local/share/fonts`
+   (`~/Library/Fonts` en macOS) y refresca la caché de fuentes.
 4. **Crea los symlinks** del comando en `~/.local/bin`: `doctyp` y sus alias `ty`, `tp`, `dt`.
-5. **Verifica el `PATH`**: si `~/.local/bin` no está incluido, te muestra la línea exacta para
+5. **Configura los datos del autor** (nombre, cargo, correo) de forma interactiva y los guarda
+   globalmente en `settings.json → local.author`. Cada dato muestra el valor actual entre
+   paréntesis: si lo dejas en blanco, se mantiene. Volver a ejecutar `init` permite cambiarlos.
+   Al crear documentos, `doctyp new` usa estos datos por defecto.
+6. **Verifica el `PATH`**: si `~/.local/bin` no está incluido, te muestra la línea exacta para
    añadirlo a tu `~/.bashrc`.
 
 Al terminar, abre una terminal nueva (o recarga el shell) y prueba:
@@ -86,6 +142,31 @@ doctyp list
 >   [instalación manual por distribución](#instalación-manual-por-distribución).
 > - Si `init` avisa de que `~/.local/bin` no está en el `PATH`, añade la línea indicada a tu
 >   `~/.bashrc` y reabre la terminal.
+
+### Windows (`init.ps1`)
+
+En Windows usa el instalador de PowerShell **`init.ps1`** (equivalente del `init` de Linux). Desde
+la carpeta del repositorio, en PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\init.ps1
+```
+
+`init.ps1`:
+
+1. **Comprueba Python 3 y Typst** (no los instala por ti; si faltan, indica el comando `winget`
+   correspondiente — p. ej. `winget install Python.Python.3.12` y `winget install Typst.Typst`).
+2. **Copia las fuentes oficiales** a la carpeta de fuentes por-usuario.
+3. **Crea lanzadores `.cmd`** (`doctyp`, `ty`, `tp`, `dt`) en `%USERPROFILE%\bin` que invocan
+   `python doctyp.py`. En Windows no se usan symlinks (requieren privilegios); los `.cmd` cumplen
+   la misma función y reenvían todos los argumentos.
+4. **Configura los datos del autor** (igual que en Linux: interactivo, valor actual entre
+   paréntesis, en blanco se mantiene) y los guarda en `settings.json → local.author`.
+5. **Añade `%USERPROFILE%\bin` al `PATH` del usuario** si no estaba.
+
+Abre una terminal **nueva** y prueba `doctyp list`. El propio `doctyp.py` ya es multiplataforma:
+detecta Typst y el editor (`code`, `$EDITOR` o la app por defecto del sistema) en Windows, macOS
+y Linux.
 
 ---
 
@@ -126,6 +207,28 @@ sudo dnf install -y python3 typst
 > **Nota Flatpak (Fedora):** si ejecutas dentro del sandbox de VS Code y `typst` solo está en el
 > host, `doctyp` lo invoca automáticamente con `flatpak-spawn --host typst`. Sin configuración extra.
 
+### Arch
+
+```bash
+sudo pacman -S --noconfirm python typst
+```
+
+### macOS
+
+```bash
+brew install python typst
+```
+
+### Windows
+
+```powershell
+winget install Python.Python.3.12
+winget install Typst.Typst
+```
+
+Luego ejecuta `init.ps1` (ver [Windows (`init.ps1`)](#windows-initps1)) para crear los lanzadores
+del comando y añadirlos al `PATH`.
+
 ---
 
 ## Instalación del comando
@@ -147,6 +250,17 @@ Si `~/.local/bin` no está en el `PATH`, añádelo a tu shell (`~/.bashrc`) y re
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+**En Windows** (si no usas `init.ps1`), crea un lanzador `.cmd` por cada alias en una carpeta que
+esté en el `PATH` (p. ej. `%USERPROFILE%\bin`); cada uno invoca el script:
+
+```bat
+@echo off
+python "C:\ruta\al\repo\doctyp.py" %*
+```
+
+Guarda ese contenido como `doctyp.cmd`, `ty.cmd`, `tp.cmd` y `dt.cmd`. No se usan symlinks en
+Windows porque requieren privilegios; los `.cmd` cumplen la misma función.
 
 Comprueba la instalación:
 
@@ -172,6 +286,7 @@ doctyp add                                   # (a)         importa un .typ del d
 doctyp compile <correlativo>                 # (c)         compila a PDF (junto al .typ y copia al CWD)
 doctyp edit  <correlativo>                   # (code, e)   abre el .typ en VS Code / editor favorito
 doctyp reset [<correlativo>]                 #             fija dónde empieza el correlativo del año (def. 1)
+doctyp config-author                         # (author)    configura el autor global (settings.json → local.author)
 ```
 
 ### Ejemplos
@@ -196,9 +311,18 @@ doctyp compile 1
 doctyp edit 1
 ```
 
-Sin `--titulo`, `new` lo pide de forma interactiva. Defaults de autoría: *Andres Cubillos
-Salazar*, *Tecnico de Soporte Informático*, *andres.cubillos@epchinchorro.cl* (ajustables con
-`--autor` / `--cargo` / `--correo`).
+Sin `--titulo`, `new` lo pide de forma interactiva. Los **defaults de autoría** salen de
+`settings.json → local.author` (lo que configuraste en `init` / `init.ps1` o con
+`doctyp config-author`); si ese campo está vacío, se usan los de fábrica (*Andres Cubillos
+Salazar*, *Tecnico de Soporte Informático*, *andres.cubillos@epchinchorro.cl*). En cualquier caso
+puedes sobrescribirlos por documento con `--autor` / `--cargo` / `--correo`.
+
+Para cambiar el autor global en cualquier momento (interactivo; cada dato muestra el valor actual
+entre paréntesis y en blanco se mantiene):
+
+```bash
+doctyp config-author
+```
 
 ---
 

@@ -11,7 +11,8 @@ Crea un archivo .typ con la nomenclatura oficial (AREA-TIPO-CAT_AAAA-NNNN) y la 
 canónica, asignando el correlativo de forma SECUENCIAL automática (global anual). La fuente de
 verdad del correlativo y de las versiones es `settings.json`, junto al script.
 
-Subcomandos (con alias):  list/ls · new/n · save/s · add/a · compile/c · edit/code/e · reset
+Subcomandos (con alias):  list/ls · new/n · save/s · add/a · compile/c · edit/code/e · reset ·
+                          config-author/author
 
 Uso rápido:
     doctyp new "Auditoría de respaldos"                 # título posicional + defaults de autoría
@@ -30,6 +31,14 @@ No requiere paquetes externos (solo stdlib).
 from __future__ import annotations
 import argparse, json, os, re, sys, subprocess, datetime
 from pathlib import Path
+
+# La salida lleva emojis (✔ ⚠ …). En la consola de Windows (cp1252 por defecto) eso provocaría
+# UnicodeEncodeError; forzamos UTF-8 en stdout/stderr cuando es posible (Python ≥ 3.7).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        pass
 
 # Ubicación real del script (resuelve el symlink). Aquí viven lib.typ, Images/ y settings.json.
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -169,6 +178,22 @@ def correlativo_inicio(registro: dict, anio: int) -> int | None:
     """Inicio de correlativo configurado por `reset` para el año (o None si no hay)."""
     val = registro.get("local", {}).get("correlativo_inicio", {}).get(str(anio))
     return int(val) if val is not None else None
+
+
+# Datos de autor por defecto, usados cuando settings.json -> local.author está vacío
+# (p. ej. tras clonar y antes de ejecutar `init`). `init`/`init.ps1` los sobrescriben.
+AUTHOR_DEFAULTS = {
+    "autor": "Andres Cubillos Salazar",
+    "cargo": "Tecnico de Soporte Informático",
+    "correo": "andres.cubillos@epchinchorro.cl",
+}
+
+
+def author_defaults(registro: dict) -> dict:
+    """Defaults de autoría: lo almacenado en local.author (global, fijado por `init`) tiene
+    prioridad; lo que falte cae a AUTHOR_DEFAULTS. Claves: autor, cargo, correo."""
+    guardado = registro.get("local", {}).get("author", {}) or {}
+    return {clave: (guardado.get(clave) or AUTHOR_DEFAULTS[clave]) for clave in AUTHOR_DEFAULTS}
 
 
 def next_correlativo_json(registro: dict, anio: int, fallback: int = 0) -> int:
@@ -375,6 +400,35 @@ def cmd_listar(args):
     print(f"\nPróximo correlativo para {anio}: {next_correlativo_json(registro, anio):04d}")
 
 
+def cmd_config_author(args):
+    """Pide interactivamente los datos del autor y los guarda en settings.json -> local.author.
+    Para cada dato muestra el valor actual entre paréntesis; si el usuario deja la línea en blanco,
+    se conserva el valor actual. Pensado para invocarse desde `init` / `init.ps1` (y a mano)."""
+    registro = cargar_registro(SCRIPT_DIR)
+    actual = author_defaults(registro)  # valores actuales (local.author o defaults de fábrica)
+    campos = (
+        ("autor", "Nombre del autor"),
+        ("cargo", "Cargo del autor"),
+        ("correo", "Correo del autor"),
+    )
+    print("Configuración del autor (se guarda globalmente en settings.json -> local.author).")
+    print("Deja en blanco para mantener el valor actual mostrado entre paréntesis.\n")
+    nuevo = {}
+    for clave, etiqueta in campos:
+        try:
+            resp = input(f"{etiqueta} ({actual[clave]}): ").strip()
+        except EOFError:
+            resp = ""
+        nuevo[clave] = resp if resp else actual[clave]
+
+    registro.setdefault("local", {})["author"] = nuevo
+    guardar_registro(SCRIPT_DIR, registro)
+    print("\n✔ Autor guardado en settings.json -> local.author:")
+    print(f"  autor:  {nuevo['autor']}")
+    print(f"  cargo:  {nuevo['cargo']}")
+    print(f"  correo: {nuevo['correo']}")
+
+
 def cmd_reset(args):
     registro = cargar_registro(SCRIPT_DIR)
     anio = args.anio or datetime.date.today().year
@@ -419,6 +473,9 @@ def cmd_nuevo(args):
     fallback = next_correlativo(scan_existing(out_dir, exclude={args.lib}), anio) - 1
     corr = args.correlativo if args.correlativo is not None else next_correlativo_json(registro, anio, fallback)
 
+    # Autoría: los flags --autor/--cargo/--correo (si se pasan) ganan; si no, se toma lo guardado
+    # globalmente en settings.json -> local.author (fijado por `init`/`init.ps1`).
+    autoria = author_defaults(registro)
     f = {
         "area": args.area.upper(), "tipo": tipo, "categoria": cat,
         "anio": anio, "correlativo": corr, "version": args.version, "fecha": fecha,
@@ -426,7 +483,9 @@ def cmd_nuevo(args):
         "titulo": titulo,
         "subtitulo": args.subtitulo or "SLEP Chinchorro",
         "estado": args.estado.upper(), "clasificacion": args.clasificacion.upper(),
-        "autor": args.autor, "cargo": args.cargo, "correo": args.correo,
+        "autor": args.autor or autoria["autor"],
+        "cargo": args.cargo or autoria["cargo"],
+        "correo": args.correo or autoria["correo"],
         "revisor": args.revisor, "aprobador": args.aprobador,
     }
 
@@ -580,35 +639,47 @@ def _vscode_flatpak_cmd(path: Path) -> tuple[str, list[str]] | None:
 
 def _abrir_en_editor(path: Path) -> bool:
     """Abre `path` en VS Code si está disponible; si no, en el editor favorito
-    ($VISUAL/$EDITOR) o, como último recurso, con xdg-open. Devuelve True si lanzó algo."""
+    ($VISUAL/$EDITOR) o, como último recurso, con la app predeterminada del sistema
+    (xdg-open en Linux, `open` en macOS, os.startfile en Windows). Devuelve True si lanzó algo."""
     import shutil
+    # En Windows, VS Code suele instalarse como `code.cmd`; shutil.which lo resuelve por PATHEXT.
+    code_exe = "code.cmd" if (os.name == "nt" and not shutil.which("code")) else "code"
     pre = _host_prefix()
     candidatos: list[tuple[str, list[str]]] = []  # (nombre legible, comando)
 
-    # 1) VS Code como binario en el PATH (sandbox o host).
-    if shutil.which("code"):
-        candidatos.append(("code", ["code", str(path)]))
+    # 1) VS Code como binario en el PATH (sandbox, host, Windows o macOS).
+    if shutil.which(code_exe):
+        candidatos.append((code_exe, [shutil.which(code_exe), str(path)]))
     elif pre and _host_run_ok(["sh", "-c", "command -v code"]):
         candidatos.append(("code (host)", pre + ["code", str(path)]))
     # 2) VS Code / VSCodium instalado como Flatpak (caso típico en Fedora).
-    vscode_fp = _vscode_flatpak_cmd(path)
-    if vscode_fp:
-        candidatos.append(vscode_fp)
+    if os.name != "nt":
+        vscode_fp = _vscode_flatpak_cmd(path)
+        if vscode_fp:
+            candidatos.append(vscode_fp)
     # 3) Editor favorito del entorno.
     for var in ("VISUAL", "EDITOR"):
         val = os.environ.get(var)
         if val:
             candidatos.append((val.split()[0], val.split() + [str(path)]))
             break
-    # 4) Último recurso: la app predeterminada del sistema.
-    if shutil.which("xdg-open"):
+    # 4) Último recurso: la app predeterminada del sistema, según plataforma.
+    if os.name == "nt":
+        # En Windows no hay xdg-open: usar os.startfile (se intenta más abajo).
+        candidatos.append(("startfile (Windows)", []))
+    elif sys.platform == "darwin" and shutil.which("open"):
+        candidatos.append(("open (macOS)", ["open", str(path)]))
+    elif shutil.which("xdg-open"):
         candidatos.append(("xdg-open", ["xdg-open", str(path)]))
     elif pre and _host_run_ok(["sh", "-c", "command -v xdg-open"]):
         candidatos.append(("xdg-open (host)", pre + ["xdg-open", str(path)]))
 
     for nombre, cmd in candidatos:
         try:
-            subprocess.Popen(cmd)
+            if not cmd and os.name == "nt":
+                os.startfile(str(path))  # type: ignore[attr-defined]  # solo existe en Windows
+            else:
+                subprocess.Popen(cmd)
             print(f"✔ Abriendo en: {nombre}")
             return True
         except (FileNotFoundError, OSError):
@@ -755,9 +826,9 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--tipo-largo", dest="tipo_largo", help="Rótulo de portada (por defecto, según --tipo).")
     pn.add_argument("--estado", default="BORRADOR", help="BORRADOR | EN REVISIÓN | APROBADO")
     pn.add_argument("--clasificacion", default="INTERNO", help="PÚBLICO | INTERNO | RESERVADO | CONFIDENCIAL")
-    pn.add_argument("--autor", default="Andres Cubillos Salazar")
-    pn.add_argument("--cargo", default="Tecnico de Soporte Informático")
-    pn.add_argument("--correo", default="andres.cubillos@epchinchorro.cl")
+    pn.add_argument("--autor", help="Autor (por defecto: settings.json -> local.author).")
+    pn.add_argument("--cargo", help="Cargo del autor (por defecto: settings.json -> local.author).")
+    pn.add_argument("--correo", help="Correo del autor (por defecto: settings.json -> local.author).")
     pn.add_argument("--revisor", help="Revisor (si se omite, usa el default de la plantilla).")
     pn.add_argument("--aprobador", help="Aprobador (si se omite, usa el default de la plantilla).")
     pn.add_argument("--forzar", action="store_true", help="Sobrescribir si el archivo ya existe.")
@@ -786,6 +857,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Número correlativo del documento a abrir (p. ej. 1 o 0001).")
     pe.add_argument("--anio", type=int, help="Año del documento (por defecto, el actual).")
     pe.set_defaults(func=cmd_edit)
+
+    pca = sub.add_parser("config-author", aliases=["author"],
+                         help="Configura el autor global (settings.json -> local.author), de forma interactiva.")
+    pca.set_defaults(func=cmd_config_author)
 
     pr = sub.add_parser("reset", help="Fija dónde empieza el correlativo del año (en settings.json).")
     pr.add_argument("correlativo", type=int, nargs="?", metavar="CORRELATIVO",
