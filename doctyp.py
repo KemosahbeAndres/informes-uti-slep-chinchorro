@@ -129,30 +129,12 @@ def next_correlativo(existing: list[dict], anio: int) -> int:
     return (max(nums) + 1) if nums else 1
 
 
-def documentos_dir() -> Path:
-    """Carpeta «Documentos» del sistema. Usa xdg-user-dir (en el host si estamos en Flatpak),
-    con fallback a ~/Documentos o ~/Documents."""
-    import shutil
-    for base in (["xdg-user-dir", "DOCUMENTS"],
-                 ["flatpak-spawn", "--host", "xdg-user-dir", "DOCUMENTS"]):
-        if shutil.which(base[0]):
-            try:
-                r = subprocess.run(base, capture_output=True, text=True)
-                ruta = r.stdout.strip()
-                if r.returncode == 0 and ruta and ruta != str(Path.home()):
-                    return Path(ruta)
-            except (OSError, FileNotFoundError):
-                pass
-    for cand in (Path.home() / "Documentos", Path.home() / "Documents"):
-        if cand.is_dir():
-            return cand
-    return Path.home() / "Documentos"
-
-
 def docs_dir(anio: int) -> Path:
-    """Carpeta donde se gestionan los documentos: <Documentos>/doctyp/<año>/.
-    Todos los .typ viven aquí (creados, importados, editados, compilados)."""
-    return documentos_dir() / "doctyp" / str(anio)
+    """Carpeta donde se gestionan los documentos: junto al script (SCRIPT_DIR), al lado de
+    `lib.typ`. Así el `.typ` puede importar la plantilla con una ruta local (`"lib.typ"`), que
+    el editor (LSP de Typst) resuelve sin configuración y compila sin `--root /`.
+    El argumento `anio` se mantiene por compatibilidad de firma; no se usa para subcarpetas."""
+    return SCRIPT_DIR
 
 
 # ----------------------------------------------------------------------
@@ -232,19 +214,18 @@ def _typst_cmd() -> list[str] | None:
 def compilar_typ(out_file: Path) -> bool:
     """Compila un .typ a PDF (el PDF queda junto al .typ). Devuelve True si tuvo éxito.
 
-    Usa `--root /` porque el .typ importa lib.typ por ruta absoluta (Typst trata `/` como la raíz
-    del proyecto, no del sistema; con `--root /` la raíz del proyecto es la del filesystem y la
-    ruta absoluta resuelve). Pasa `--font-path` a la carpeta de fuentes para fidelidad tipográfica."""
+    El .typ importa lib.typ con ruta local (mismo directorio), así que no hace falta `--root`.
+    Pasa `--font-path` a la carpeta de fuentes para fidelidad tipográfica."""
     base = _typst_cmd()
     if base is None:
         print("⚠ 'typst' no está disponible (ni en el PATH ni vía flatpak-spawn); omito la compilación.")
         return False
-    cmd = base + ["compile", "--root", "/"]
+    cmd = base + ["compile"]
     font_dir = SCRIPT_DIR / "museo-sans"
     if font_dir.is_dir():
         cmd += ["--font-path", str(font_dir)]
     cmd.append(str(out_file))
-    # Ejecuta con cwd en la carpeta del .typ (siempre bajo SCRIPT_DIR, visible para el host).
+    # Ejecuta con cwd en la carpeta del .typ (SCRIPT_DIR, bajo $HOME, visible para el host).
     # Con flatpak-spawn --host, el cwd del sandbox (p. ej. /tmp/...) puede no existir en el host.
     try:
         subprocess.run(cmd, check=True, cwd=str(out_file.parent))
@@ -455,9 +436,9 @@ def cmd_nuevo(args):
     if out_file.exists() and not args.forzar:
         sys.exit(f"ERROR: {out_file} ya existe. Usa --forzar para sobrescribir.")
 
-    # Import por ruta absoluta al lib.typ del proyecto: funciona desde cualquier carpeta y
-    # Typst resuelve Images/ y fuentes relativo a lib.typ.
-    lib_import = lib_path.as_posix()
+    # Import por ruta relativa a lib.typ (mismo directorio → "lib.typ"). El editor lo resuelve
+    # sin configuración y compila sin --root /. Typst resuelve Images/ y fuentes relativo a lib.typ.
+    lib_import = os.path.relpath(lib_path, out_dir).replace(os.sep, "/")
     out_file.write_text(build_typ(f, lib_import), encoding="utf-8")
 
     # Registrar el documento (fuente de verdad del correlativo y de las versiones).
@@ -553,7 +534,7 @@ def cmd_compile(args):
     if not compilar_typ(typ_path):
         sys.exit(1)
 
-    # El PDF queda junto al .typ (en Documentos/doctyp/); además se copia al CWD para tenerlo a mano.
+    # El PDF queda junto al .typ (en SCRIPT_DIR); además se copia al CWD para tenerlo a mano.
     pdf = typ_path.with_suffix(".pdf")
     destino_cwd = Path.cwd() / pdf.name
     if pdf.exists() and destino_cwd.resolve() != pdf.resolve():
@@ -706,7 +687,7 @@ def cmd_add(args):
                  f"registrado por {choque['codigo_base']}. Reasigna el correlativo en el .typ "
                  f"antes de importarlo.")
 
-    # Mover a <Documentos>/doctyp/<año>/ con el nombre estándar <código-base>.typ (sobrescribe).
+    # Mover junto a lib.typ con el nombre estándar <código-base>.typ (sobrescribe si existe).
     import shutil
     dest_dir = docs_dir(meta["anio"])
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -716,6 +697,15 @@ def cmd_add(args):
         print(f"✔ Movido: {p.name} → {destino}")
     else:
         print(f"  Ya está en su carpeta: {destino}")
+
+    # Normalizar el import a la plantilla local ("lib.typ"), por si el .typ traía otra ruta.
+    lib_import = os.path.relpath(SCRIPT_DIR / args.lib, dest_dir).replace(os.sep, "/")
+    txt = destino.read_text(encoding="utf-8")
+    nuevo, n = re.subn(r'(#import\s+")[^"]*(":\s*\*)',
+                       lambda m: f'{m.group(1)}{lib_import}{m.group(2)}', txt, count=1)
+    if n and nuevo != txt:
+        destino.write_text(nuevo, encoding="utf-8")
+        print(f"  Import normalizado a \"{lib_import}\".")
 
     # Registrar como documento, reconstruyendo el historial de versiones desde la versión actual.
     ahora = datetime.datetime.now().isoformat(timespec="seconds")

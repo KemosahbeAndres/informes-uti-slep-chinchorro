@@ -15,7 +15,7 @@ central, evitando números repetidos o saltados.
 - **Comando global** invocable desde cualquier carpeta (`doctyp`, con alias `ty`, `tp`, `dt`).
 - **Nomenclatura oficial** automática: `AREA-TIPO-CAT_AAAA-NNNN`.
 - **Correlativo secuencial anual**, con punto de inicio configurable (`reset`).
-- **Gestión centralizada**: todos los documentos viven en `~/Documentos/doctyp/<año>/`.
+- **Gestión centralizada**: todos los documentos viven junto a la plantilla (`lib.typ`).
 - **Versionado semántico** del documento y de su tabla de control de versiones (`save`).
 - **Compilación a PDF** con resolución correcta de plantilla y fuentes.
 - **Apertura en el editor** (VS Code o el favorito del sistema).
@@ -149,7 +149,7 @@ doctyp list  [--anio 2026]                   # (ls)        lista documentos y el
 doctyp new   "Título" [opciones]             # (n)         crea un informe (tipo INF, categoría SFW por defecto)
 doctyp save  <correlativo> --m "mensaje"     # (s)         sube la versión (patch) y registra el cambio
 doctyp add                                   # (a)         importa un .typ del directorio actual al registro
-doctyp compile <correlativo>                 # (c)         compila a PDF (en Documentos/doctyp/ y copia al CWD)
+doctyp compile <correlativo>                 # (c)         compila a PDF (junto al .typ y copia al CWD)
 doctyp edit  <correlativo>                   # (code, e)   abre el .typ en VS Code / editor favorito
 doctyp reset [<correlativo>]                 #             fija dónde empieza el correlativo del año (def. 1)
 ```
@@ -186,9 +186,13 @@ Salazar*, *Tecnico de Soporte Informático*, *andres.cubillos@epchinchorro.cl* (
 
 | Elemento | Ubicación |
 |---|---|
-| Documentos `.typ` y sus PDF | `~/Documentos/doctyp/<año>/<código-base>.typ` |
+| Documentos `.typ` y sus PDF | junto al script, como `<código-base>.typ` |
 | Plantilla, fuentes y assets | junto al script (`lib.typ`, `museo-sans/`, `Images/`) |
 | Configuración + registro | `settings.json` (junto al script) |
+
+Los documentos se guardan **al lado de la plantilla** (`lib.typ`) a propósito: así el `.typ` la
+importa con ruta local (`#import "lib.typ"`), el editor la resuelve sin configuración y compila
+sin opciones extra.
 
 El campo `local.correlativo_inicio` de `settings.json` guarda, por año, dónde empieza la
 numeración (lo gestiona `doctyp reset`).

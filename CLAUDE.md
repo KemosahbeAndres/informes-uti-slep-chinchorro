@@ -36,8 +36,10 @@
     └── isologo_2.png    # Marca pequeña (reservado)            ← meta.logos.isologo
 ```
 
-Los **documentos generados NO viven en el repo**: se guardan en la carpeta «Documentos» del
-sistema, en `<Documentos>/doctyp/<año>/<código-base>.typ` (p. ej. `~/Documentos/doctyp/2026/`).
+Los **documentos generados se guardan en `SCRIPT_DIR`** (junto a `lib.typ`), como
+`<código-base>.typ`. Viven al lado de la plantilla para que el `.typ` la importe con ruta
+local (`#import "lib.typ"`): así el editor (LSP de Typst) la resuelve sin configuración y
+compila sin `--root`.
 
 Cada informe se nombra con su **código base**: `TI-<TIPO>-<CAT>_<AAAA>-<NNNN>.typ`.
 
@@ -97,12 +99,13 @@ Script en Python estándar (sin dependencias), instalado como **comando global**
 (symlink en `~/.local/bin` → `doctyp.py`), con alias equivalentes **`ty`**, **`tp`** y **`dt`**
 (symlinks al mismo script). Funciona desde cualquier carpeta:
 
-- **Gestión centralizada en `<Documentos>/doctyp/<año>/`:** todos los documentos (creados,
-  importados, editados, compilados) viven en la carpeta «Documentos» del sistema. El CWD ya no
-  almacena documentos. La carpeta se resuelve con `xdg-user-dir DOCUMENTS` (fallback `~/Documentos`).
-- **Plantilla y assets junto al script:** `lib.typ`, `Images/` y `settings.json` viven en
-  `SCRIPT_DIR`; el `.typ` generado importa `lib.typ` por **ruta absoluta**, así Typst resuelve
-  los logos y las fuentes desde cualquier carpeta.
+- **Gestión centralizada en `SCRIPT_DIR`:** todos los documentos (creados, importados, editados,
+  compilados) viven junto a la plantilla, no en el CWD. El `.typ` importa `lib.typ` con ruta
+  **local** (`#import "lib.typ"`); por eso el editor lo resuelve sin configuración y compila sin
+  `--root`. (Typst rechaza imports que escapen del root del proyecto, así que la plantilla debe
+  estar en la misma carpeta que el documento.)
+- **Plantilla y assets junto al script:** `lib.typ`, `Images/`, las fuentes y `settings.json`
+  viven en `SCRIPT_DIR`; Typst resuelve `Images/` y las fuentes relativo a `lib.typ`.
 - **Config + registro central:** `settings.json` (en `SCRIPT_DIR`) es la **fuente de verdad** de
   correlativos y versiones; guarda la `ruta` de cada `.typ`. El campo `local.correlativo_inicio`
   (por año) define dónde empieza la numeración (ver `reset`).
@@ -118,8 +121,8 @@ Script en Python estándar (sin dependencias), instalado como **comando global**
 doctyp list  [--anio 2026]                   # (alias: ls) lista documentos y el próximo correlativo
 doctyp new   "Título" [opciones]             # (alias: n)  crea (tipo INF, categoría SFW por defecto)
 doctyp save  <correlativo> --m "mensaje"     # (alias: s)  sube versión (patch) y registra el cambio
-doctyp add                                   # (alias: a)  mueve un .typ del CWD a Documentos/doctyp/ y lo registra
-doctyp compile <correlativo>                 # (alias: c)  compila a PDF (en Documentos/doctyp/ y copia al CWD)
+doctyp add                                   # (alias: a)  mueve un .typ del CWD junto a la plantilla y lo registra
+doctyp compile <correlativo>                 # (alias: c)  compila a PDF (junto al .typ y copia al CWD)
 doctyp edit <correlativo>                    # (alias: code, e) abre el .typ en VS Code / editor favorito
 doctyp reset [<correlativo>]                 # fija dónde empieza el correlativo del año (def. 1)
 ```
@@ -168,24 +171,22 @@ creado a mano o traído de otra parte). `doctyp add` (sin argumentos):
 - Lista solo los `.typ` del CWD que tienen `crear-meta` **completo** (area, tipo, categoría,
   año, correlativo, versión, título, autor) y que **aún no están** en el registro.
 - Permite elegir uno tecleando su número (`q` cancela).
-- **Mueve el archivo** a `<Documentos>/doctyp/<año>/<código-base>.typ` (sobrescribe si ya existe
-  allí) y lo registra, conservando el correlativo del meta; si ese correlativo choca con otro del
-  registro, avisa y no importa.
+- **Mueve el archivo** junto a la plantilla (`SCRIPT_DIR/<código-base>.typ`, sobrescribe si ya
+  existe), **normaliza su import a `"lib.typ"`** y lo registra, conservando el correlativo del
+  meta; si ese correlativo choca con otro del registro, avisa y no importa.
 
 Tras `add`, el documento queda gestionado como cualquier otro: `doctyp save <correlativo> ...`
 funciona sobre él.
 
 ### Subcomando `compile`
 `doctyp compile <correlativo>` localiza el documento en el registro y lo compila a PDF. El PDF
-queda **junto al `.typ` en `<Documentos>/doctyp/<año>/`** y, además, se **copia al CWD** donde se
-ejecutó. Detalles de la invocación (en `compilar_typ`):
-- **`--root /`**: el `.typ` importa `lib.typ` por ruta absoluta y Typst trata `/` como la raíz
-  del *proyecto* (no del sistema); con `--root /` la raíz del proyecto pasa a ser la del
-  filesystem y la ruta absoluta resuelve. **Sin esto la compilación falla** (compilar a mano sin
-  `--root /` no funciona).
+queda **junto al `.typ` (en `SCRIPT_DIR`)** y, además, se **copia al CWD** donde se ejecutó.
+Detalles de la invocación (en `compilar_typ`):
+- **Sin `--root`**: el `.typ` importa `lib.typ` con ruta local, así que Typst resuelve todo desde
+  la carpeta del documento (que es `SCRIPT_DIR`).
 - **`--font-path <SCRIPT_DIR>/museo-sans`**: fuentes Museo Sans para fidelidad tipográfica.
-- **`cwd` = carpeta del `.typ`** (bajo Documentos): con `flatpak-spawn --host`, el cwd del sandbox
-  (p. ej. `/tmp/...`) puede no existir en el host; ejecutar dentro de Documentos (bajo `$HOME`) lo evita.
+- **`cwd` = carpeta del `.typ`** (`SCRIPT_DIR`, bajo `$HOME`): con `flatpak-spawn --host`, el cwd
+  del sandbox (p. ej. `/tmp/...`) puede no existir en el host; ejecutar en `SCRIPT_DIR` lo evita.
 - **Flatpak (Fedora):** si `typst` no está en el PATH del sandbox pero sí en el host, usa
   `flatpak-spawn --host typst`. En una terminal normal del host se usa `typst` directo.
 
@@ -286,18 +287,18 @@ Patrón: `AREA-TIPO-CAT_AAAA-NNNN_vX.Y_AAAAMMDD` → p. ej. `TI-INF-SEG_2026-002
 
 ## 7. Compilar  (hazlo tras cada edición)
 
-**Recomendado:** `doctyp compile <correlativo>` — localiza el documento por el registro, le aplica
-`--root /` y `--font-path` automáticamente y deja el PDF junto al `.typ` (§3, subcomando `compile`).
+**Recomendado:** `doctyp compile <correlativo>` — localiza el documento por el registro, le pasa
+`--font-path` automáticamente y deja el PDF junto al `.typ` (§3, subcomando `compile`).
 
 ```bash
-doctyp compile 23                            # vía el generador (maneja --root / y fuentes)
+doctyp compile 23                            # vía el generador (maneja fuentes y entorno)
 ```
 
-A mano (recuerda `--root /`, necesario por el import absoluto a `lib.typ`):
+A mano (el import a `lib.typ` es local, así que no hace falta `--root`; ejecuta desde `SCRIPT_DIR`):
 
 ```bash
-typst compile --root / --font-path <ruta>/museo-sans TI-INF-SEG_2026-0023.typ   # → .pdf
-typst watch  --root / TI-INF-SEG_2026-0023.typ                                   # modo redacción
+typst compile --font-path museo-sans TI-INF-SEG_2026-0023.typ   # → .pdf
+typst watch  TI-INF-SEG_2026-0023.typ                           # modo redacción
 ```
 
 - Requiere **Typst ≥ 0.12** y, para fidelidad tipográfica, la fuente **Museo Sans** en
@@ -345,7 +346,7 @@ Cuando el usuario diga “redactemos un informe sobre X”:
 5. Al cerrar una versión: `doctyp save <correlativo> --m "<qué cambió>"` sube el patch, actualiza
    el `version:` del `.typ` y añade la fila a `s-versiones` automáticamente. Reporta el `codigo-completo`.
 
-Sugerencia: deja `typst watch --root / <archivo>.typ` corriendo durante la redacción.
+Sugerencia: deja `typst watch <archivo>.typ` corriendo (desde `SCRIPT_DIR`) durante la redacción.
 
 ---
 
@@ -354,7 +355,7 @@ Sugerencia: deja `typst watch --root / <archivo>.typ` corriendo durante la redac
 | Síntoma | Causa | Solución |
 |---|---|---|
 | `dictionary does not contain key "..."` | `meta` parcial pasado a un helper | Construye `meta` con `crear-meta(...)` |
-| `file not found (Images/...)` | rutas relativas a `lib.typ` | Mantén `lib.typ` y `Images/` juntos en `SCRIPT_DIR`; el `.typ` importa `lib.typ` por ruta absoluta |
+| `file not found (Images/...)` o import en rojo | el `.typ` no está junto a `lib.typ` | El documento y `lib.typ` deben estar en la misma carpeta (`SCRIPT_DIR`); el import es local `"lib.typ"` |
 | Recuadros de logo vacíos | faltan los PNG reales | Copia `logoslepch.png` (y `isologo_2.png`) a `Images/` |
 | Tipografía distinta al estándar | Museo Sans no instalada | Instálala o usa `--font-path`; fallback Liberation Sans |
 | Íconos de aviso como cuadros | la fuente fallback no trae ℹ/⚠/⛔/✓ | Con Museo Sans renderizan; o cambia los glifos en `_aviso-cfg` |
